@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -17,9 +17,10 @@ import {
   DropdownMenuItem,
   DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu'
-import { ChevronDown, CircleAlert, Copy, ExternalLink, FlaskConical, KeyRound, Layers, ListFilter, ListPlus, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, Zap } from 'lucide-react'
+import { BarChart3, ChevronDown, CircleAlert, Copy, ExternalLink, FlaskConical, KeyRound, Layers, ListFilter, ListPlus, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, Zap } from 'lucide-react'
 import type { ApiKey, ApiKeyModel } from '../../../../shared/types'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
+import { indexKeyUsage, keyUsageTooltip, type KeyUsageRow } from '@/lib/key-usage'
 import { useI18n } from '@/i18n'
 import { toast } from '@/lib/toast'
 import {
@@ -50,7 +51,7 @@ type BulkAction = 'enable' | 'disable' | 'delete'
 // groups. Owns the keys/health/proxy queries and every per-key mutation so
 // KeysPage stays a thin shell. `onAddKey` opens the shared Add key dialog.
 export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const queryClient = useQueryClient()
 
   const [editingKeyId, setEditingKeyId] = useState<number | null>(null)
@@ -95,6 +96,17 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
     queryKey: ['proxy-url'],
     queryFn: () => apiFetch('/api/settings/proxy'),
   })
+  // Last-7-day usage per key, shown next to each row. Asks past the
+  // endpoint's default top-50 cap so every used key gets a number; a failed
+  // fetch just leaves the rows as they were.
+  const { data: usageRows } = useQuery<KeyUsageRow[]>({
+    queryKey: ['analytics', 'by-key', '7d', 'all'],
+    queryFn: () => apiFetch('/api/analytics/by-key?range=7d&limit=1000'),
+    staleTime: 60_000,
+  })
+  const usageByKey = useMemo(() => indexKeyUsage(usageRows ?? []), [usageRows])
+  const numberFormat = useMemo(() => new Intl.NumberFormat(locale), [locale])
+  const formatNumber = (n: number) => numberFormat.format(n)
   const bypassPlatforms = proxyData?.bypassPlatforms ?? []
   const proxyEnabled = proxyData?.enabled ?? true
 
@@ -492,6 +504,7 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
                       const status = statusOf(k)
                       const health = healthKeyMap.get(k.id)
                       const lastChecked = health?.lastCheckedAt ?? k.lastCheckedAt
+                      const usage = usageByKey.get(k.id)
                       const lastHealthError = health?.lastHealthError ?? k.lastHealthError
                       const customModels = k.models ?? []
                       const hasCustomModels = customModels.length > 0
@@ -574,6 +587,18 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
                               >
                                 {t(k.modelScope!.length === 1 ? 'keys.modelScopeBadgeOne' : 'keys.modelScopeBadgeOther', { count: k.modelScope!.length })}
                               </Badge>
+                            )}
+                            {usage && (
+                              <Tooltip text={keyUsageTooltip(usage, t, formatNumber)}>
+                                <span
+                                  tabIndex={0}
+                                  aria-label={`${t('analytics.requests')}: ${formatNumber(usage.requests)}`}
+                                  className={`inline-flex items-center gap-1 text-[11px] text-muted-foreground tabular-nums ${k.enabled ? '' : 'opacity-50'}`}
+                                >
+                                  <BarChart3 className="size-3" />
+                                  {formatNumber(usage.requests)}
+                                </span>
+                              </Tooltip>
                             )}
                             <div className="flex-1" />
                             {lastChecked && (
