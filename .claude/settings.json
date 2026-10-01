@@ -1,0 +1,13 @@
+{
+  "enabledPlugins": {
+    "claudex-loop@claudex-loop": true
+  },
+  "extraKnownMarketplaces": {
+    "claudex-loop": {
+      "source": {
+        "source": "github",
+        "repo": "chaseai-yt/claudex-loop"
+      }
+    }
+  }
+}

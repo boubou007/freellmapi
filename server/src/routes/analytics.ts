@@ -393,9 +393,19 @@ analyticsRouter.get('/by-client', (req: Request, res: Response) => {
 // Stats grouped by API key. Raw-row scoped (the hourly aggregate has no key
 // dimension), LEFT JOINed to api_keys so a request whose key was later deleted
 // still shows up with a null label — the keyId is always returned.
+// Row cap for /by-key. The Analytics table keeps the default top 50; the Keys
+// page asks for more so every key row can show its usage. Anything that is not
+// a plain digit string (arrays from repeated params, '5abc', '1e3') falls back
+// to the default rather than being half-parsed.
+export function parseByKeyLimit(raw: unknown): number {
+  if (typeof raw !== 'string' || !/^\d+$/.test(raw)) return 50;
+  return Math.min(1000, Math.max(1, Number.parseInt(raw, 10)));
+}
+
 analyticsRouter.get('/by-key', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
+  const limit = parseByKeyLimit(req.query.limit);
   const db = getDb();
 
   const rows = db.prepare(`
@@ -412,9 +422,9 @@ analyticsRouter.get('/by-key', (req: Request, res: Response) => {
     LEFT JOIN api_keys k ON k.id = r.key_id
     WHERE r.key_id IS NOT NULL AND r.created_at >= ?
     GROUP BY r.key_id
-    ORDER BY requests DESC
-    LIMIT 50
-  `).all(since) as any[];
+    ORDER BY requests DESC, r.key_id
+    LIMIT ?
+  `).all(since, limit) as any[];
 
   res.json(rows.map(r => ({
     keyId: r.key_id,

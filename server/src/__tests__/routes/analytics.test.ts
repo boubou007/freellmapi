@@ -3,6 +3,7 @@ import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { getDb, initDb } from '../../db/index.js';
 import { logRequest } from '../../lib/request-log.js';
+import { parseByKeyLimit } from '../../routes/analytics.js';
 import { mintDashboardToken, isGatedApiPath } from '../helpers/auth.js';
 
 let dashToken = '';
@@ -417,6 +418,35 @@ describe('Analytics API', () => {
       expect(k99.label).toBeNull();
       expect(k99.platform).toBeNull();
       expect(k99.requests).toBe(2);
+    });
+
+    it('honours ?limit, returning only the top keys', async () => {
+      insertRaw({ keyId: 1, status: 'success', createdAt: '2026-05-29 11:00:00' });
+      insertRaw({ keyId: 1, status: 'success', createdAt: '2026-05-29 11:01:00' });
+      insertRaw({ keyId: 2, status: 'success', createdAt: '2026-05-29 11:02:00' });
+
+      const { status, body } = await request(app, '/api/analytics/by-key?range=24h&limit=1');
+
+      expect(status).toBe(200);
+      expect(body).toHaveLength(1);
+      expect(body[0].keyId).toBe(1);
+    });
+  });
+
+  describe('parseByKeyLimit', () => {
+    it.each([
+      [undefined, 50],
+      ['', 50],
+      ['7', 7],
+      ['0', 1],
+      ['-1', 50],
+      ['5000', 1000],
+      ['abc', 50],
+      ['5abc', 50],
+      ['1e3', 50],
+      [['1', '2'], 50],
+    ])('parses %j as %i', (raw, expected) => {
+      expect(parseByKeyLimit(raw)).toBe(expected);
     });
   });
 
